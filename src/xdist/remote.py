@@ -125,9 +125,18 @@ class WorkerInteractor:
         self.channel = channel
         self.torun = TestQueue(self.channel.gateway.execmodel)
         self.nextitem_index: int | None | Literal[Marker.SHUTDOWN] = None
+        self._stashed_logfinish: dict[str, Any] | None = None
         config.pluginmanager.register(self)
 
     def sendevent(self, name: str, **kwargs: object) -> None:
+        stash = self._stashed_logfinish
+        if stash is not None:
+            self._stashed_logfinish = None
+            if name == "runtest_protocol_complete":
+                kwargs["logfinish"] = stash
+            else:
+                self.log("sending", "logfinish", stash)
+                self.channel.send(("logfinish", stash))
         self.log("sending", name, kwargs)
         self.channel.send((name, kwargs))
 
@@ -287,7 +296,11 @@ class WorkerInteractor:
         nodeid: str,
         location: tuple[str, int | None, str],
     ) -> None:
-        self.sendevent("logfinish", nodeid=nodeid, location=location)
+        # logfinish is the last hook of the runtest protocol, and the
+        # runtest_protocol_complete event follows immediately after, so
+        # hold it back and let sendevent piggyback it on that message
+        # (or flush it as its own message if another event intervenes).
+        self._stashed_logfinish = {"nodeid": nodeid, "location": location}
 
     @pytest.hookimpl
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:

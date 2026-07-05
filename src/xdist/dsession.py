@@ -337,13 +337,24 @@ class DSession:
         self._handlefailures(rep)
 
     def worker_runtest_protocol_complete(
-        self, node: WorkerController, item_index: int, duration: float
+        self,
+        node: WorkerController,
+        item_index: int,
+        duration: float,
+        logfinish: dict[str, Any] | None = None,
     ) -> None:
         """
         Emitted when a node fires the 'runtest_protocol_complete' event,
         signalling that a test has completed the runtestprotocol and should be
         removed from the pending list in the scheduler.
+
+        The worker piggybacks the final pytest_runtest_logfinish call of the
+        protocol on this event instead of sending it as its own message.
         """
+        if logfinish is not None:
+            self.config.hook.pytest_runtest_logfinish(
+                nodeid=logfinish["nodeid"], location=logfinish["location"]
+            )
         assert self.sched is not None
         self.sched.mark_test_complete(node, item_index, duration)
 
