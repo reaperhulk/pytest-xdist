@@ -284,10 +284,12 @@ class WorkerInteractor:
         self.sendevent("collectiondigest", count=len(ids), digest=digest)
 
     def send_full_collection(self) -> None:
+        # A single joined string serializes an order of magnitude faster
+        # through execnet than a list with one entry per nodeid.
         self.sendevent(
             "collectionfinish",
             topdir=str(self.config.rootpath),
-            ids=[item.nodeid for item in self.session.items],
+            ids="\x00".join(item.nodeid for item in self.session.items),
         )
 
     @pytest.hookimpl

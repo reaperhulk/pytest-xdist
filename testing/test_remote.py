@@ -155,7 +155,7 @@ class TestWorkerInteractor:
         worker.sendcommand("send_collection")
         ev = worker.popevent("collectionfinish")
         assert ev.kwargs["topdir"] == str(worker.pytester.path)
-        ids = ev.kwargs["ids"]
+        ids = ev.kwargs["ids"].split("\x00")
         assert len(ids) == 1
         worker.sendcommand("runtests", indices=list(range(len(ids))))
         worker.sendcommand("shutdown")

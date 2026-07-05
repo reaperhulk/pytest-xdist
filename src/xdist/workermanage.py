@@ -446,7 +446,9 @@ class WorkerController:
             elif eventname == "collectiondigest":
                 self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "collectionfinish":
-                self.notify_inproc(eventname, node=self, ids=kwargs["ids"])
+                joined = kwargs["ids"]
+                ids = joined.split("\x00") if joined else []
+                self.notify_inproc(eventname, node=self, ids=ids)
             elif eventname == "runtest_protocol_complete":
                 self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "unscheduled":
