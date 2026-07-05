@@ -156,6 +156,17 @@ class WorkStealingScheduling:
                 )
                 self.log(msg)
                 return
+            self.node2collection[node] = self.collection
+            return
+        # All collections are expected to be identical, so share the first
+        # received one instead of retaining one copy per node. Mismatching
+        # collections keep their own copy so that ``.schedule()`` can report
+        # the difference.
+        if self.node2collection:
+            canonical = next(iter(self.node2collection.values()))
+            if collection == canonical:
+                self.node2collection[node] = canonical
+                return
         self.node2collection[node] = list(collection)
 
     def mark_test_complete(

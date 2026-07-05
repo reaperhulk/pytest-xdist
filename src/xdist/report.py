@@ -15,7 +15,7 @@ def report_collection_diff(
     :returns: detailed message describing the difference between the given
     collections, or None if they are equal.
     """
-    if from_collection == to_collection:
+    if from_collection is to_collection or from_collection == to_collection:
         return None
 
     diff = unified_diff(from_collection, to_collection, fromfile=from_id, tofile=to_id)
