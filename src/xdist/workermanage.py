@@ -375,6 +375,9 @@ class WorkerController:
     def send_runtest_some(self, indices: Sequence[int]) -> None:
         self.sendcommand("runtests", indices=indices)
 
+    def send_collection_request(self) -> None:
+        self.sendcommand("send_collection")
+
     def send_runtest_all(self) -> None:
         self.sendcommand("runtests_all")
 
@@ -438,6 +441,8 @@ class WorkerController:
                 if item_index is not None:
                     rep.item_index = item_index
                 self.notify_inproc(eventname, node=self, rep=rep)
+            elif eventname == "collectiondigest":
+                self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "collectionfinish":
                 self.notify_inproc(eventname, node=self, ids=kwargs["ids"])
             elif eventname == "runtest_protocol_complete":

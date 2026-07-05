@@ -14,6 +14,7 @@ from collections.abc import Iterable
 from collections.abc import Sequence
 import contextlib
 import enum
+import hashlib
 import os
 import sys
 import time
@@ -172,6 +173,8 @@ class WorkerInteractor:
             self.torun.put_many(kwargs["indices"])
         elif name == "runtests_all":
             self.torun.put_many(range(len(self.session.items)))
+        elif name == "send_collection":
+            self.send_full_collection()
         elif name == "shutdown":
             self.torun.put(Marker.SHUTDOWN)
         elif name == "steal":
@@ -267,10 +270,22 @@ class WorkerInteractor:
 
     @pytest.hookimpl
     def pytest_collection_finish(self, session: pytest.Session) -> None:
+        # Send only a fingerprint of the collection: all workers are expected
+        # to collect the same items, so the controller requests the full
+        # nodeid list from a single worker (and from any worker whose digest
+        # disagrees, to report the difference) via the "send_collection"
+        # command instead of receiving one copy per worker.
+        ids = [item.nodeid for item in session.items]
+        digest = hashlib.sha256(
+            "\x00".join(ids).encode("utf-8", "surrogatepass")
+        ).hexdigest()
+        self.sendevent("collectiondigest", count=len(ids), digest=digest)
+
+    def send_full_collection(self) -> None:
         self.sendevent(
             "collectionfinish",
             topdir=str(self.config.rootpath),
-            ids=[item.nodeid for item in session.items],
+            ids=[item.nodeid for item in self.session.items],
         )
 
     @pytest.hookimpl

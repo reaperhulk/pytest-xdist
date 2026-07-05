@@ -57,6 +57,14 @@ class DSession:
         self._session: pytest.Session | None = None
         self._failed_collection_errors: dict[object, bool] = {}
         self._active_nodes: set[WorkerController] = set()
+        # Collection digest handling: workers announce their collection with
+        # a (count, digest) fingerprint; the full nodeid list is requested
+        # from one worker and shared with every worker whose digest matches.
+        self._node2collection_digest: dict[WorkerController, str] = {}
+        self._canonical_collection: list[str] | None = None
+        self._canonical_collection_digest: str | None = None
+        self._collection_requested_from: WorkerController | None = None
+        self._nodes_awaiting_collection: list[WorkerController] = []
         self._failed_nodes_count = 0
         self._max_worker_restart = get_default_max_worker_restart(self.config)
         # summary message to print at the end of the session
@@ -206,6 +214,7 @@ class DSession:
         workerready before shutdown was triggered.
         """
         self.config.hook.pytest_testnodedown(node=node, error=None)
+        self._collection_node_gone(node)
         if node.workeroutput["exitstatus"] == 2:  # keyboard-interrupt
             self.shouldstop = f"{node} received keyboard-interrupt"
             self.worker_errordown(node, "keyboard-interrupt")
@@ -245,6 +254,7 @@ class DSession:
     def worker_errordown(self, node: WorkerController, error: object | None) -> None:
         """Emitted by the WorkerController when a node dies."""
         self.config.hook.pytest_testnodedown(node=node, error=error)
+        self._collection_node_gone(node)
         assert self.sched is not None
         try:
             crashitem = self.sched.remove_node(node)
@@ -287,10 +297,80 @@ class DSession:
                 node.gateway.spec, WorkerStatus.Collecting, tests_collected=0
             )
 
+    def worker_collectiondigest(
+        self, node: WorkerController, count: int, digest: str
+    ) -> None:
+        """Worker has finished test collection and sent its fingerprint.
+
+        The first worker to report is asked for its full nodeid list, which
+        becomes the canonical collection shared by every worker announcing
+        the same digest.  Workers with a different digest are also asked for
+        their full list so that the difference can be reported.
+        """
+        if self.shuttingdown:
+            return
+        self._node2collection_digest[node] = digest
+        if self.terminal:
+            self.trdist.setstatus(
+                node.gateway.spec, WorkerStatus.CollectionDone, tests_collected=count
+            )
+        if self._canonical_collection is not None:
+            if digest == self._canonical_collection_digest:
+                self._register_node_collection(node, self._canonical_collection)
+            else:
+                node.send_collection_request()
+        elif self._collection_requested_from is None:
+            self._collection_requested_from = node
+            node.send_collection_request()
+        else:
+            self._nodes_awaiting_collection.append(node)
+
     def worker_collectionfinish(
         self, node: WorkerController, ids: Sequence[str]
     ) -> None:
-        """Worker has finished test collection.
+        """Worker has sent its full collection in response to 'send_collection'.
+
+        The first full collection received becomes the canonical one; workers
+        that announced a matching digest are registered against it without
+        ever sending their own copy.
+        """
+        if self.shuttingdown:
+            return
+        if self._canonical_collection is None:
+            self._canonical_collection = list(ids)
+            self._canonical_collection_digest = self._node2collection_digest.get(node)
+            self._collection_requested_from = None
+            self._register_node_collection(node, self._canonical_collection)
+            waiting = self._nodes_awaiting_collection
+            self._nodes_awaiting_collection = []
+            for other in waiting:
+                digest = self._node2collection_digest.get(other)
+                if digest == self._canonical_collection_digest:
+                    self._register_node_collection(other, self._canonical_collection)
+                else:
+                    other.send_collection_request()
+        else:
+            self._register_node_collection(node, list(ids))
+
+    def _collection_node_gone(self, node: WorkerController) -> None:
+        """Keep the collection-request bookkeeping consistent when a node dies.
+
+        If the node we asked for the full collection is gone before
+        answering, ask the next worker that is waiting on it.
+        """
+        if node in self._nodes_awaiting_collection:
+            self._nodes_awaiting_collection.remove(node)
+        if node is self._collection_requested_from:
+            self._collection_requested_from = None
+            if self._canonical_collection is None and self._nodes_awaiting_collection:
+                next_node = self._nodes_awaiting_collection.pop(0)
+                self._collection_requested_from = next_node
+                next_node.send_collection_request()
+
+    def _register_node_collection(
+        self, node: WorkerController, ids: Sequence[str]
+    ) -> None:
+        """Add a node's collection to the scheduler.
 
         This adds the collection for this node to the scheduler.  If
         the scheduler indicates collection is finished (i.e. all
@@ -298,8 +378,6 @@ class DSession:
         scheduler to schedule the collected items.  When initiating
         scheduling the first time it logs which scheduler is in use.
         """
-        if self.shuttingdown:
-            return
         self.config.hook.pytest_xdist_node_collection_finished(node=node, ids=ids)
         # tell session which items were effectively collected otherwise
         # the controller node will finish the session with EXIT_NOTESTSCOLLECTED

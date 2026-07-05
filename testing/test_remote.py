@@ -149,6 +149,10 @@ class TestWorkerInteractor:
         ev = worker.popevent()
         assert ev.name == "collectionstart"
         assert not ev.kwargs
+        ev = worker.popevent("collectiondigest")
+        assert ev.kwargs["count"] == 1
+        assert ev.kwargs["digest"]
+        worker.sendcommand("send_collection")
         ev = worker.popevent("collectionfinish")
         assert ev.kwargs["topdir"] == str(worker.pytester.path)
         ids = ev.kwargs["ids"]
@@ -186,8 +190,8 @@ class TestWorkerInteractor:
         assert rep.skipped
         assert isinstance(rep.longrepr, tuple)
         assert rep.longrepr[2] == "Skipped: hello"
-        ev = worker.popevent("collectionfinish")
-        assert not ev.kwargs["ids"]
+        ev = worker.popevent("collectiondigest")
+        assert ev.kwargs["count"] == 0
 
     def test_remote_collect_fail(
         self, worker: WorkerSetup, unserialize_report: UnserializerReport
@@ -200,8 +204,8 @@ class TestWorkerInteractor:
         assert ev.name == "collectreport"
         rep = unserialize_report(ev.kwargs["data"])
         assert rep.failed
-        ev = worker.popevent("collectionfinish")
-        assert not ev.kwargs["ids"]
+        ev = worker.popevent("collectiondigest")
+        assert ev.kwargs["count"] == 0
 
     def test_runtests_all(
         self, worker: WorkerSetup, unserialize_report: UnserializerReport
@@ -218,9 +222,8 @@ class TestWorkerInteractor:
         ev = worker.popevent()
         assert ev.name == "collectionstart"
         assert not ev.kwargs
-        ev = worker.popevent("collectionfinish")
-        ids = ev.kwargs["ids"]
-        assert len(ids) == 2
+        ev = worker.popevent("collectiondigest")
+        assert ev.kwargs["count"] == 2
         worker.sendcommand("runtests_all")
         worker.sendcommand("shutdown")
         for func in "::test_func", "::test_func2":
@@ -284,9 +287,8 @@ class TestWorkerInteractor:
         """
         )
         worker.setup()
-        ev = worker.popevent("collectionfinish")
-        ids = ev.kwargs["ids"]
-        assert len(ids) == 4
+        ev = worker.popevent("collectiondigest")
+        assert ev.kwargs["count"] == 4
         worker.sendcommand("runtests_all")
 
         # wait for test_func setup
@@ -340,9 +342,8 @@ class TestWorkerInteractor:
         """
         )
         worker.setup()
-        ev = worker.popevent("collectionfinish")
-        ids = ev.kwargs["ids"]
-        assert len(ids) == 2
+        ev = worker.popevent("collectiondigest")
+        assert ev.kwargs["count"] == 2
         worker.sendcommand("runtests_all")
 
         for when in ["setup", "call", "teardown"]:
