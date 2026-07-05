@@ -174,8 +174,6 @@ class LoadScheduling:
 
     def mark_test_pending(self, item: str) -> None:
         assert self.collection is not None
-        # Build the reverse index lazily: most sessions never reschedule
-        # crashed items, and list.index would be a linear scan per call.
         if self._collection_index is None:
             self._collection_index = {
                 nodeid: index for index, nodeid in enumerate(self.collection)

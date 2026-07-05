@@ -178,8 +178,6 @@ class WorkStealingScheduling:
         This is called by the ``DSession.worker_testreport`` hook.
         """
         pending = self.node2pending[node]
-        # Workers process their queue in order, so the completed item is
-        # almost always at the head; popleft is O(1) while remove is O(n).
         if pending and pending[0] == item_index:
             pending.popleft()
         else:
@@ -188,8 +186,6 @@ class WorkStealingScheduling:
 
     def mark_test_pending(self, item: str) -> None:
         assert self.collection is not None
-        # Build the reverse index lazily: most sessions never reschedule
-        # crashed items, and list.index would be a linear scan per call.
         if self._collection_index is None:
             self._collection_index = {
                 nodeid: index for index, nodeid in enumerate(self.collection)
