@@ -9,6 +9,7 @@ import pytest
 from xdist.remote import Producer
 from xdist.report import report_collection_diff
 from xdist.workermanage import parse_tx_spec_config
+from xdist.workermanage import worker_sort_key
 from xdist.workermanage import WorkerController
 
 
@@ -108,7 +109,7 @@ class LoadScopeScheduling:
     @property
     def nodes(self) -> list[WorkerController]:
         """A list of all active nodes in the scheduler."""
-        return list(self.assigned_work.keys())
+        return sorted(self.assigned_work.keys(), key=worker_sort_key)
 
     @property
     def collection_is_completed(self) -> bool:

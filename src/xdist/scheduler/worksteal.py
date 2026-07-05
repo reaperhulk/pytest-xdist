@@ -11,6 +11,7 @@ import pytest
 from xdist.remote import Producer
 from xdist.report import report_collection_diff
 from xdist.workermanage import parse_tx_spec_config
+from xdist.workermanage import worker_sort_key
 from xdist.workermanage import WorkerController
 
 
@@ -91,7 +92,7 @@ class WorkStealingScheduling:
     @property
     def nodes(self) -> list[WorkerController]:
         """A list of all nodes in the scheduler."""
-        return list(self.node2pending.keys())
+        return sorted(self.node2pending.keys(), key=worker_sort_key)
 
     @property
     def collection_is_completed(self) -> bool:

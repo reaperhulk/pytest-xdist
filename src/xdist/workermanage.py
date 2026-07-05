@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 import enum
 import fnmatch
 import os
@@ -21,6 +22,19 @@ from xdist.plugin import _sys_path
 import xdist.remote
 from xdist.remote import Producer
 from xdist.remote import WorkerInfo
+
+
+def worker_sort_key(node: WorkerController) -> tuple[int, int | str]:
+    """Sort key ordering workers by gateway id ("gw10" after "gw9").
+
+    Workers bootstrap concurrently, so the order in which they report ready
+    is not deterministic; schedulers order nodes with this key so that work
+    distribution does not depend on boot timing.
+    """
+    m = re.fullmatch(r"gw(\d+)", node.gateway.id)
+    if m:
+        return (0, int(m.group(1)))
+    return (1, node.gateway.id)
 
 
 def parse_tx_spec_config(config: pytest.Config) -> list[str]:
@@ -94,6 +108,21 @@ class NodeManager:
     ) -> list[WorkerController]:
         self.config.hook.pytest_xdist_setupnodes(config=self.config, specs=self.specs)
         self.trace("setting up nodes")
+        if len(self.specs) > 1 and not any(spec.via for spec in self.specs):
+            # Spawn the gateways concurrently: makegateway() blocks on a
+            # subprocess bootstrap handshake, so spawning one worker at a
+            # time costs tens of milliseconds per worker.  Gateway ids were
+            # already allocated in spec order in __init__, and the hooks and
+            # node setup run below on this thread in that same order.  Specs
+            # with `via` stay on the serial path: they bootstrap through a
+            # shared proxy gateway that only serves one remote_exec at a
+            # time.
+            with ThreadPoolExecutor(max_workers=len(self.specs)) as pool:
+                gateways = list(pool.map(self._spawn_gateway, self.specs))
+            return [
+                self._setup_node(gw, putevent, worker_index)
+                for worker_index, gw in enumerate(gateways)
+            ]
         return [
             self.setup_node(spec, putevent, worker_index)
             for worker_index, spec in enumerate(self.specs)
@@ -108,6 +137,22 @@ class NodeManager:
         if getattr(spec, "execmodel", None) != "main_thread_only":
             spec = execnet.XSpec(f"execmodel=main_thread_only//{spec}")
         gw = self.group.makegateway(spec)
+        return self._setup_node(gw, putevent, worker_index)
+
+    def _spawn_gateway(self, spec: execnet.XSpec) -> execnet.Gateway:
+        gw = self.group.makegateway(spec)
+        # Cache rinfo (a blocking round-trip to the worker) while still on
+        # the spawning thread; WorkerController.setup() needs it cached
+        # anyway and would otherwise pay the round-trip serially.
+        gw._rinfo()
+        return gw
+
+    def _setup_node(
+        self,
+        gw: execnet.Gateway,
+        putevent: Callable[[tuple[str, dict[str, Any]]], None],
+        worker_index: int,
+    ) -> WorkerController:
         self.config.hook.pytest_xdist_newgateway(gateway=gw)
         self.rsync_roots(gw)
         node = WorkerController(self, gw, self.config, putevent, worker_index)
