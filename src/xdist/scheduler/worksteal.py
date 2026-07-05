@@ -72,6 +72,7 @@ class WorkStealingScheduling:
         self.node2pending: dict[WorkerController, deque[int]] = {}
         self.pending: list[int] = []
         self.collection: list[str] | None = None
+        self._collection_index: dict[str, int] | None = None
         if log is None:
             self.log = Producer("workstealsched")
         else:
@@ -187,9 +188,15 @@ class WorkStealingScheduling:
 
     def mark_test_pending(self, item: str) -> None:
         assert self.collection is not None
+        # Build the reverse index lazily: most sessions never reschedule
+        # crashed items, and list.index would be a linear scan per call.
+        if self._collection_index is None:
+            self._collection_index = {
+                nodeid: index for index, nodeid in enumerate(self.collection)
+            }
         self.pending.insert(
             0,
-            self.collection.index(item),
+            self._collection_index[item],
         )
         self.check_schedule()
 

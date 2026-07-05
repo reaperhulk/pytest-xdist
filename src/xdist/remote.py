@@ -93,6 +93,10 @@ class TestQueue:
         with self.lock() as locked_items:
             locked_items.append(item)
 
+    def put_many(self, items: Iterable[Item]) -> None:
+        with self.lock() as locked_items:
+            locked_items.extend(items)
+
     def replace(self, iterable: Iterable[Item]) -> None:
         with self.lock():
             self._items = collections.deque(iterable)
@@ -165,11 +169,9 @@ class WorkerInteractor:
 
         self.log("received command", name, kwargs)
         if name == "runtests":
-            for i in kwargs["indices"]:
-                self.torun.put(i)
+            self.torun.put_many(kwargs["indices"])
         elif name == "runtests_all":
-            for i in range(len(self.session.items)):
-                self.torun.put(i)
+            self.torun.put_many(range(len(self.session.items)))
         elif name == "shutdown":
             self.torun.put(Marker.SHUTDOWN)
         elif name == "steal":
