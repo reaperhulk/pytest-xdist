@@ -294,6 +294,20 @@ class DSession:
     def pytest_terminal_summary(self, terminalreporter: Any) -> None:
         if self.config.option.verbose >= 0 and self._summary_report:
             terminalreporter.write_sep("=", f"xdist: {self._summary_report}")
+        if self.config.option.verbose > 0:
+            sched = getattr(self, "sched", None)
+            requests = getattr(sched, "steal_requests", 0)
+            if requests:
+                failed = sched.steal_requests_failed
+                deferred = sched.steal_deferred
+                stolen = sched.tests_stolen
+                avg_ms = sched.steal_in_flight_total / requests * 1000
+                terminalreporter.write_line(
+                    f"worksteal: {requests} steal requests "
+                    f"({failed} failed, {deferred} deferred), "
+                    f"{stolen} tests reassigned, "
+                    f"avg round-trip {avg_ms:.1f}ms"
+                )
 
     def worker_collectionstart(self, node: WorkerController) -> None:
         """Worker has started test collection."""

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Sequence
 from itertools import islice
+import time
 from typing import NamedTuple
 
 import pytest
@@ -79,6 +80,13 @@ class WorkStealingScheduling:
             self.log = log.workstealsched
         self.config = config
         self.steal_requested_from_node: WorkerController | None = None
+        # steal statistics, reported in the verbose terminal summary
+        self.steal_requests = 0
+        self.steal_requests_failed = 0
+        self.steal_deferred = 0
+        self.tests_stolen = 0
+        self.steal_in_flight_total = 0.0
+        self._steal_sent_at = 0.0
 
     @property
     def nodes(self) -> list[WorkerController]:
@@ -207,6 +215,11 @@ class WorkStealingScheduling:
         """
         assert node is self.steal_requested_from_node
         self.steal_requested_from_node = None
+        self.steal_in_flight_total += time.perf_counter() - self._steal_sent_at
+        if indices:
+            self.tests_stolen += len(indices)
+        else:
+            self.steal_requests_failed += 1
 
         indices_set = set(indices)
         self.node2pending[node] = deque(
@@ -250,6 +263,8 @@ class WorkStealingScheduling:
 
         # Only one active stealing request is allowed
         if self.steal_requested_from_node is not None:
+            # idle nodes exist but they have to wait for the current request
+            self.steal_deferred += 1
             return
 
         # Find the node that has the longest test queue
@@ -277,6 +292,8 @@ class WorkStealingScheduling:
         steal_tail = list(
             islice(steal_from.pending, len(steal_from.pending) - num_steal, None)
         )
+        self.steal_requests += 1
+        self._steal_sent_at = time.perf_counter()
         steal_from.node.send_steal(steal_tail)
         self.steal_requested_from_node = steal_from.node
 
