@@ -74,6 +74,7 @@ class DSession:
         self._t_start = time.perf_counter()
         self._t_last_workerready = self._t_start
         self._t_last_collection = self._t_start
+        self._collection_finish_times: list[float] = []
         self.terminal = config.pluginmanager.getplugin("terminalreporter")
         if self.terminal:
             self.trdist = TerminalDistReporter(config)
@@ -340,6 +341,7 @@ class DSession:
         if self.shuttingdown:
             return
         self._t_last_collection = time.perf_counter()
+        self._collection_finish_times.append(self._t_last_collection)
         self._node2collection_digest[node] = digest
         if self.terminal:
             self.trdist.setstatus(
@@ -430,9 +432,16 @@ class DSession:
                     boot = self._t_last_workerready - self._t_start
                     collect = self._t_last_collection - self._t_last_workerready
                     exchange = now - self._t_last_collection
+                    spread = ""
+                    if self._collection_finish_times:
+                        fastest = (
+                            min(self._collection_finish_times)
+                            - self._t_last_workerready
+                        )
+                        spread = f" (fastest worker {fastest:.2f}s)"
                     self.terminal.write_line(
                         f"startup: {boot:.2f}s to boot workers, "
-                        f"{collect:.2f}s to collect, "
+                        f"{collect:.2f}s to collect{spread}, "
                         f"{exchange:.2f}s to exchange the collection"
                     )
                     self.terminal.write_line(
