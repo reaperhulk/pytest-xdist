@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Sequence
+from itertools import islice
 from typing import NamedTuple
 
 import pytest
@@ -13,7 +15,7 @@ from xdist.workermanage import WorkerController
 
 class NodePending(NamedTuple):
     node: WorkerController
-    pending: list[int]
+    pending: deque[int]
 
 
 # Every worker needs at least 2 tests in queue - the current and the next one.
@@ -67,7 +69,7 @@ class WorkStealingScheduling:
     def __init__(self, config: pytest.Config, log: Producer | None = None) -> None:
         self.numnodes = len(parse_tx_spec_config(config))
         self.node2collection: dict[WorkerController, list[str]] = {}
-        self.node2pending: dict[WorkerController, list[int]] = {}
+        self.node2pending: dict[WorkerController, deque[int]] = {}
         self.pending: list[int] = []
         self.collection: list[str] | None = None
         if log is None:
@@ -131,7 +133,7 @@ class WorkStealingScheduling:
         successfully bootstraps a new node.
         """
         assert node not in self.node2pending
-        self.node2pending[node] = []
+        self.node2pending[node] = deque()
 
     def add_node_collection(
         self, node: WorkerController, collection: Sequence[str]
@@ -163,7 +165,13 @@ class WorkStealingScheduling:
 
         This is called by the ``DSession.worker_testreport`` hook.
         """
-        self.node2pending[node].remove(item_index)
+        pending = self.node2pending[node]
+        # Workers process their queue in order, so the completed item is
+        # almost always at the head; popleft is O(1) while remove is O(n).
+        if pending and pending[0] == item_index:
+            pending.popleft()
+        else:
+            pending.remove(item_index)
         self.check_schedule()
 
     def mark_test_pending(self, item: str) -> None:
@@ -187,9 +195,9 @@ class WorkStealingScheduling:
         self.steal_requested_from_node = None
 
         indices_set = set(indices)
-        self.node2pending[node] = [
+        self.node2pending[node] = deque(
             i for i in self.node2pending[node] if i not in indices_set
-        ]
+        )
         self.pending.extend(indices)
         self.check_schedule()
 
@@ -246,7 +254,10 @@ class WorkStealingScheduling:
             return
 
         assert steal_from is not None
-        steal_from.node.send_steal(steal_from.pending[-num_steal:])
+        steal_tail = list(
+            islice(steal_from.pending, len(steal_from.pending) - num_steal, None)
+        )
+        steal_from.node.send_steal(steal_tail)
         self.steal_requested_from_node = steal_from.node
 
     def remove_node(self, node: WorkerController) -> str | None:
@@ -266,7 +277,7 @@ class WorkStealingScheduling:
         # If node was removed without completing its assigned tests - it crashed
         if pending:
             assert self.collection is not None
-            crashitem = self.collection[pending.pop(0)]
+            crashitem = self.collection[pending.popleft()]
         else:
             crashitem = None
 
