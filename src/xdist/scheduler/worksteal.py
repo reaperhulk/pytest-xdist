@@ -217,6 +217,12 @@ class WorkStealingScheduling:
 
     def check_schedule(self) -> None:
         """Reschedule tests/perform load balancing."""
+        for node, pending in self.node2pending.items():
+            if len(pending) < MIN_PENDING and not node.shutting_down:
+                break
+        else:
+            return
+
         nodes_up = [
             NodePending(node, pending)
             for node, pending in self.node2pending.items()
