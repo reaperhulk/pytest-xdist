@@ -418,8 +418,8 @@ class WorkerController:
                     self._down = True
                 return
             eventname, kwargs = eventcall
-            if eventname in ("collectionstart",):
-                self.log(f"ignoring {eventname}({kwargs})")
+            if eventname == "collectionstart":
+                self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "workerready":
                 self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "internal_error":

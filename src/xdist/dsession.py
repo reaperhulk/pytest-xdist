@@ -278,6 +278,15 @@ class DSession:
         if self.config.option.verbose >= 0 and self._summary_report:
             terminalreporter.write_sep("=", f"xdist: {self._summary_report}")
 
+    def worker_collectionstart(self, node: WorkerController) -> None:
+        """Worker has started test collection."""
+        if self.shuttingdown:
+            return
+        if self.terminal:
+            self.trdist.setstatus(
+                node.gateway.spec, WorkerStatus.Collecting, tests_collected=0
+            )
+
     def worker_collectionfinish(
         self, node: WorkerController, ids: Sequence[str]
     ) -> None:
@@ -471,6 +480,9 @@ class WorkerStatus(Enum):
     # Worker is now ready for collection.
     ReadyForCollection = auto()
 
+    # Worker has started collecting.
+    Collecting = auto()
+
     # Worker has finished collection.
     CollectionDone = auto()
 
@@ -592,7 +604,7 @@ def get_workers_status_line(
         _status, tests_collected = first
         tests_noun = "item" if tests_collected == 1 else "items"
         return f"{total_workers} {workers_noun} [{tests_collected} {tests_noun}]"
-    if WorkerStatus.CollectionDone in statuses:
+    if WorkerStatus.CollectionDone in statuses or WorkerStatus.Collecting in statuses:
         done = sum(1 for s, c in status_and_items if c > 0)
         return f"collecting: {done}/{total_workers} {workers_noun}"
     if WorkerStatus.ReadyForCollection in statuses:
