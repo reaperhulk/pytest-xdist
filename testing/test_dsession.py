@@ -618,6 +618,10 @@ CollectionDone = WorkerStatus.CollectionDone
             "collecting: 1/2 workers",
         ),
         (
+            [(Collecting, 1500), (Collecting, 0)],
+            "collecting: 0/2 workers [1500 items]",
+        ),
+        (
             [(CollectionDone, 12), (CollectionDone, 12)],
             "2 workers [12 items]",
         ),

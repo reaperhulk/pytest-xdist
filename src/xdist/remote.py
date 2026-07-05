@@ -126,6 +126,8 @@ class WorkerInteractor:
         self.channel = channel
         self.torun = TestQueue(self.channel.gateway.execmodel)
         self.nextitem_index: int | None | Literal[Marker.SHUTDOWN] = None
+        self._collected_count = 0
+        self._last_collection_progress = 0.0
         config.pluginmanager.register(self)
 
     def sendevent(self, name: str, **kwargs: object) -> None:
@@ -317,6 +319,15 @@ class WorkerInteractor:
 
     @pytest.hookimpl
     def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        # keep the controller's status display ticking while collection of a
+        # large suite is underway, at most every half second
+        items = sum(1 for x in report.result if isinstance(x, pytest.Item))
+        if items:
+            self._collected_count += items
+            now = time.perf_counter()
+            if now - self._last_collection_progress >= 0.5:
+                self._last_collection_progress = now
+                self.sendevent("collectionprogress", count=self._collected_count)
         # send only reports that have not passed to controller as optimization (#330)
         if not report.passed:
             data = self.config.hook.pytest_report_to_serializable(

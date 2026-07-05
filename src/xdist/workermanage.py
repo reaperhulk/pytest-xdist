@@ -441,6 +441,8 @@ class WorkerController:
                 if item_index is not None:
                     rep.item_index = item_index
                 self.notify_inproc(eventname, node=self, rep=rep)
+            elif eventname == "collectionprogress":
+                self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "collectiondigest":
                 self.notify_inproc(eventname, node=self, **kwargs)
             elif eventname == "collectionfinish":

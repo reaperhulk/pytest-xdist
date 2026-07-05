@@ -297,6 +297,15 @@ class DSession:
                 node.gateway.spec, WorkerStatus.Collecting, tests_collected=0
             )
 
+    def worker_collectionprogress(self, node: WorkerController, count: int) -> None:
+        """Worker reported how many items it has collected so far."""
+        if self.shuttingdown:
+            return
+        if self.terminal:
+            self.trdist.setstatus(
+                node.gateway.spec, WorkerStatus.Collecting, tests_collected=count
+            )
+
     def worker_collectiondigest(
         self, node: WorkerController, count: int, digest: str
     ) -> None:
@@ -683,8 +692,14 @@ def get_workers_status_line(
         tests_noun = "item" if tests_collected == 1 else "items"
         return f"{total_workers} {workers_noun} [{tests_collected} {tests_noun}]"
     if WorkerStatus.CollectionDone in statuses or WorkerStatus.Collecting in statuses:
-        done = sum(1 for s, c in status_and_items if c > 0)
-        return f"collecting: {done}/{total_workers} {workers_noun}"
+        done = statuses.count(WorkerStatus.CollectionDone)
+        line = f"collecting: {done}/{total_workers} {workers_noun}"
+        if done == 0:
+            items = max(c for s, c in status_and_items)
+            if items:
+                tests_noun = "item" if items == 1 else "items"
+                line += f" [{items} {tests_noun}]"
+        return line
     if WorkerStatus.ReadyForCollection in statuses:
         ready = statuses.count(WorkerStatus.ReadyForCollection)
         return f"ready: {ready}/{total_workers} {workers_noun}"
