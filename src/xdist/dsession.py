@@ -6,6 +6,7 @@ from enum import Enum
 from queue import Empty
 from queue import Queue
 import sys
+import time
 from typing import Any
 import warnings
 
@@ -69,6 +70,10 @@ class DSession:
         self._max_worker_restart = get_default_max_worker_restart(self.config)
         # summary message to print at the end of the session
         self._summary_report: str | None = None
+        # startup phase timestamps, for the dispatch-ready report
+        self._t_start = time.perf_counter()
+        self._t_last_workerready = self._t_start
+        self._t_last_collection = self._t_start
         self.terminal = config.pluginmanager.getplugin("terminalreporter")
         if self.terminal:
             self.trdist = TerminalDistReporter(config)
@@ -94,6 +99,7 @@ class DSession:
         The nodes are setup to put their events onto self.queue.  As
         soon as nodes start they will emit the worker_workerready event.
         """
+        self._t_start = time.perf_counter()
         self.nodemanager = NodeManager(self.config)
         nodes = self.nodemanager.setup_nodes(putevent=self.queue.put)
         self._active_nodes.update(nodes)
@@ -197,6 +203,7 @@ class DSession:
         node.workerinfo = workerinfo
         node.workerinfo["id"] = node.gateway.id
         node.workerinfo["spec"] = node.gateway.spec
+        self._t_last_workerready = time.perf_counter()
 
         self.config.hook.pytest_testnodeready(node=node)
         if self.shuttingdown:
@@ -318,6 +325,7 @@ class DSession:
         """
         if self.shuttingdown:
             return
+        self._t_last_collection = time.perf_counter()
         self._node2collection_digest[node] = digest
         if self.terminal:
             self.trdist.setstatus(
@@ -400,9 +408,19 @@ class DSession:
             )
         if self.sched.collection_is_completed:
             if self.terminal and not self.sched.has_pending:
+                now = time.perf_counter()
+                self.trdist.set_dispatch_ready(now - self._t_start)
                 self.trdist.ensure_show_status()
                 self.terminal.write_line("")
                 if self.config.option.verbose > 0:
+                    boot = self._t_last_workerready - self._t_start
+                    collect = self._t_last_collection - self._t_last_workerready
+                    exchange = now - self._t_last_collection
+                    self.terminal.write_line(
+                        f"startup: {boot:.2f}s to boot workers, "
+                        f"{collect:.2f}s to collect, "
+                        f"{exchange:.2f}s to exchange the collection"
+                    )
                     self.terminal.write_line(
                         f"scheduling tests via {self.sched.__class__.__name__}"
                     )
@@ -581,6 +599,13 @@ class TerminalDistReporter:
         self._status: dict[object, tuple[WorkerStatus, int]] = {}
         self._lastlen = 0
         self._isatty = getattr(self.tr, "isatty", self.tr.hasmarkup)
+        self._dispatch_ready_elapsed: float | None = None
+
+    def set_dispatch_ready(self, elapsed: float) -> None:
+        """Record the startup duration, shown on the final status line."""
+        self._dispatch_ready_elapsed = elapsed
+        if self._isatty:
+            self.rewrite(self.getstatus())
 
     def write_line(self, msg: str) -> None:
         self.tr.write_line(msg)
@@ -605,6 +630,8 @@ class TerminalDistReporter:
         if self.config.option.verbose >= 0:
             line = get_workers_status_line(list(self._status.values()))
             if line:
+                if self._dispatch_ready_elapsed is not None:
+                    line += f" in {self._dispatch_ready_elapsed:.2f}s"
                 return line
 
         return "bringing up nodes..."

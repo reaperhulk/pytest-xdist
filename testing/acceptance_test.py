@@ -1691,7 +1691,7 @@ def test_collection_crash(pytester: pytest.Pytester) -> None:
     result.stdout.fnmatch_lines(
         [
             "created: 1/1 worker",
-            "1 worker [[]0 items[]]",
+            "1 worker [[]0 items[]]*",
             "*_ ERROR collecting test_collection_crash.py _*",
             "E   assert 0",
             "*= 1 error in *",
